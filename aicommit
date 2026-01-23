@@ -171,7 +171,7 @@ run_step() {
 }
 
 # ---------------- AI CALL ----------------
-system=$'Write a Git commit message strictly following Conventional Commits v1.0.0.\n\n- Plain text only\n- First line: type(scope)!: subject\n- type ∈ feat|fix|build|chore|ci|docs|style|refactor|perf|test|revert\n- subject imperative, <=72 chars, no trailing period\n- Add body/footer only if needed\n- Do NOT invent changes.'
+system=$'write a git commit message strictly following conventional commits v1.0.0.\n\n- plain text only\n- use lowercase letters only (no uppercase characters anywhere)\n- first line: type(scope)!: subject\n- type ∈ feat|fix|build|chore|ci|docs|style|refactor|perf|test|revert\n- subject imperative, <=72 chars, no trailing period\n- add body/footer only if needed\n- do not invent changes.'
 
 call_ai() {
   local usr="$1"
