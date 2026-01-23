@@ -1,8 +1,10 @@
 theme = "Catppuccin Mocha"
 font-family = "DejaVuSansM Nerd Font Mono"
 font-size = 13.5
-adjust-cell-height = "15%"
+# adjust-cell-height = "15%"
 font-thicken = true
 font-thicken-strength = 80
-window-height=22
+window-height=24
 window-width=100
+shell-integration = fish
+command = /usr/local/bin/fish --login --interactive
