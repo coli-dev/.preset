@@ -15,7 +15,7 @@ ADD_ALL=false
 NO_CONFIRM=false
 DO_PUSH=false
 
-# -------- FLAG PARSER (supports -ayp) --------
+# ---------------- FLAGS (-ayp / --all --no-confirm --push) ----------------
 for arg in "$@"; do
   case "$arg" in
     --all) ADD_ALL=true ;;
@@ -33,18 +33,46 @@ for arg in "$@"; do
       ;;
   esac
 done
-# --------------------------------------------
 
-# -------- SPINNER --------
+# ---------------- HIRES TIMER (mac-friendly, no heredoc-on-stdin) ----------------
+now() {
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import time; print(time.time())'
+  else
+    perl -MTime::HiRes=time -e 'print time'
+  fi
+}
+
+elapsed() {
+  # args: t0 t1 -> prints float seconds
+  local t0="$1" t1="$2"
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import sys; t0=float(sys.argv[1]); t1=float(sys.argv[2]); print(t1-t0)' "$t0" "$t1"
+  else
+    perl -e 'my ($t0,$t1)=@ARGV; print($t1-$t0);' "$t0" "$t1"
+  fi
+}
+
+fmt_secs() {
+  # input: float seconds (from stdin)
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import sys; x=float(sys.stdin.read().strip() or 0); print(f"{x:.1f}s")'
+  else
+    perl -e 'chomp($x=<STDIN>); $x=0+$x; printf("%.1fs",$x)'
+  fi
+}
+
+# ---------------- SPINNER (one-line) ----------------
 SPIN_PID=""
+SPIN_MSG=""
 
 spinner_start() {
-  local msg="${1:-Working...}"
+  SPIN_MSG="${1:-Working...}"
   local frames='|/-\'
   (
-    i=0
+    local i=0
     while :; do
-      printf "\r%s %c" "$msg" "${frames:i%${#frames}:1}"
+      printf "\r%s %c" "$SPIN_MSG" "${frames:i%${#frames}:1}"
       i=$((i+1))
       sleep 0.12
     done
@@ -52,31 +80,105 @@ spinner_start() {
   SPIN_PID=$!
 }
 
-spinner_stop() {
+spinner_stop_line() {
+  local suffix="${1:-}"
   if [[ -n "${SPIN_PID:-}" ]]; then
     kill "$SPIN_PID" 2>/dev/null || true
     wait "$SPIN_PID" 2>/dev/null || true
   fi
   SPIN_PID=""
-  printf "\r\033[K"
+  printf "\r\033[K%s%s\n" "$SPIN_MSG" "$suffix"
 }
 
-trap 'spinner_stop; exit 130' INT
-trap 'spinner_stop' EXIT TERM
-# -------------------------
+cleanup() {
+  if [[ -n "${SPIN_PID:-}" ]]; then
+    kill "$SPIN_PID" 2>/dev/null || true
+    wait "$SPIN_PID" 2>/dev/null || true
+  fi
+  SPIN_PID=""
+}
+trap 'cleanup; echo; exit 130' INT
+trap 'cleanup' EXIT TERM
 
-$ADD_ALL && git add -A
+# ---------------- JOKES ----------------
+J_ADD=(
+  "Đang gom nhặt mảnh vỡ…"
+  "Đang dọn bãi chiến trường…"
+  "Đang ‘git add’ với niềm tin…"
+  "Đang nhặt từng dòng như nhặt lá…"
+)
+J_DIFF=(
+  "Đang soi diff dưới kính hiển vi…"
+  "Đang đọc ‘tâm thư’ của staged changes…"
+  "Đang kiểm tra xem bạn có lỡ tay không…"
+  "Đang tìm xem có bug nào lẩn trốn…"
+)
+J_AI=(
+  "Đang tìm lý do cho mớ code này…"
+  "Đang giải thích sự hỗn loạn…"
+  "Đang bịa commit một cách chuyên nghiệp…"
+  "Đang cố hiểu bạn vừa làm gì…"
+  "Đang biến panic thành commit…"
+)
+J_FIX=(
+  "Đang nắn commit cho đúng chuẩn…"
+  "Đang dũa câu chữ cho ‘Conventional’…"
+  "Đang vá format…"
+)
+J_COMMIT=(
+  "Đang khắc commit lên bia đá…"
+  "Đang chốt hạ lịch sử…"
+  "Đang ‘git commit’ với sự nghiêm túc giả…"
+)
+J_PUSH=(
+  "Đang đẩy lên trời…"
+  "Đang phóng commit lên origin…"
+  "Đang gửi hàng qua không gian…"
+  "Đang bắn thay đổi ra internet…"
+)
 
-diff="$(git diff --staged || true)"
-[[ -n "$diff" ]] || { echo "No staged changes."; exit 0; }
-diff="${diff:0:$MAX}"
+pick() {
+  local arr_name="$1"
+  eval "local n=\${#${arr_name}[@]}"
+  local idx=$((RANDOM % n))
+  eval "printf '%s' \"\${${arr_name}[$idx]}\""
+}
 
+# ---------------- STEP RUNNER ----------------
+run_step() {
+  local msg="$1"
+  shift
+
+  local t0 t1 dt
+  t0="$(now)"
+  spinner_start "$msg"
+
+  # keep commands quiet; if fail show stderr
+  local err
+  err="$(mktemp)"
+  if "$@" >/dev/null 2>"$err"; then
+    t1="$(now)"
+    dt="$(elapsed "$t0" "$t1")"
+    spinner_stop_line " (Done $(printf "%s" "$dt" | fmt_secs))"
+    rm -f "$err"
+    return 0
+  else
+    spinner_stop_line " (Fail)"
+    echo "---- error ----" >&2
+    sed 's/^/  /' "$err" >&2 || true
+    echo "--------------" >&2
+    rm -f "$err"
+    return 1
+  fi
+}
+
+# ---------------- AI CALL ----------------
 system=$'Write a Git commit message strictly following Conventional Commits v1.0.0.\n\n- Plain text only\n- First line: type(scope)!: subject\n- type ∈ feat|fix|build|chore|ci|docs|style|refactor|perf|test|revert\n- subject imperative, <=72 chars, no trailing period\n- Add body/footer only if needed\n- Do NOT invent changes.'
 
-user="Staged diff:\n$diff"
-
 call_ai() {
-  jq -n --arg m "$MODEL" --arg sys "$system" --arg usr "$1" --argjson t "$TEMP" '{
+  local usr="$1"
+
+  jq -n --arg m "$MODEL" --arg sys "$system" --arg usr "$usr" --argjson t "$TEMP" '{
     model: $m,
     temperature: $t,
     input: [
@@ -86,7 +188,7 @@ call_ai() {
     text: { format: { type: "text" } }
   }' |
   curl -sS "$BASE_URL/v1/responses" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
+    -H "Authorization: Bearer '"$OPENAI_API_KEY"'" \
     -H "Content-Type: application/json" \
     -d @- |
   jq -r '
@@ -102,25 +204,41 @@ call_ai() {
   sed 's/\r$//'
 }
 
-SPINNER_TEXTS=(
-  "Đang tìm lý do cho mớ code này…"
-  "Đang giải thích sự hỗn loạn…"
-  "Đang bịa commit một cách chuyên nghiệp…"
-  "Đang cố hiểu bạn vừa làm gì…"
-  "Đang biến panic thành commit…"
-)
+# ---------------- MAIN ----------------
+# 1) add
+if $ADD_ALL; then
+  run_step "$(pick J_ADD)" git add -A
+fi
 
-spinner_start "${SPINNER_TEXTS[RANDOM % ${#SPINNER_TEXTS[@]}]}"
-msg="$(call_ai "$user")"
-spinner_stop
+# 2) staged diff
+diff="$(git diff --staged || true)"
+[[ -n "$diff" ]] || { echo "No staged changes."; exit 0; }
+diff="${diff:0:$MAX}"
 
-[[ -n "$msg" ]] || { echo "Empty AI response"; exit 1; }
+# purely UX line (instant)
+run_step "$(pick J_DIFF)" bash -c 'exit 0'
 
+user="Staged diff:\n$diff"
+
+# 3) AI generate (needs stdout => manual timing)
+t0="$(now)"
+spinner_start "$(pick J_AI)"
+msg="$(call_ai "$user" || true)"
+t1="$(now)"
+dt="$(elapsed "$t0" "$t1")"
+spinner_stop_line " (Done $(printf "%s" "$dt" | fmt_secs))"
+
+[[ -n "${msg:-}" ]] || { echo "Empty AI response"; exit 1; }
+
+# 4) validate + fix format if needed
 first="$(head -n1 <<<"$msg")"
 if ! [[ "$first" =~ $RE ]]; then
-  spinner_start "Fixing format"
-  msg="$(call_ai $'Fix ONLY formatting to match Conventional Commits v1.0.0.\nReturn plain text only.\n\nDraft:\n'"$msg")"
-  spinner_stop
+  t0="$(now)"
+  spinner_start "$(pick J_FIX)"
+  msg="$(call_ai $'Fix ONLY formatting to match Conventional Commits v1.0.0.\nReturn plain text only.\n\nDraft:\n'"$msg" || true)"
+  t1="$(now)"
+  dt="$(elapsed "$t0" "$t1")"
+  spinner_stop_line " (Done $(printf "%s" "$dt" | fmt_secs))"
 
   first="$(head -n1 <<<"$msg")"
   [[ "$first" =~ $RE ]] || { echo "Invalid Conventional Commit: $first"; exit 1; }
@@ -130,18 +248,20 @@ echo "-------------------------"
 echo "$msg"
 echo "-------------------------"
 
+# 5) confirm
 if ! $NO_CONFIRM; then
   read -r -p "Commit? [y/N] " yn
   [[ "$yn" =~ ^[Yy]$ ]] || exit 0
 fi
 
+# 6) commit (quiet git)
 tmp="$(mktemp)"
 printf "%s\n" "$msg" > "$tmp"
-git commit -F "$tmp"
+run_step "$(pick J_COMMIT)" git commit -F "$tmp"
 rm -f "$tmp"
 
+# 7) push (quiet git)
 if $DO_PUSH; then
   branch="$(git rev-parse --abbrev-ref HEAD)"
-  echo "Pushing to origin $branch..."
-  git push origin "$branch"
+  run_step "$(pick J_PUSH) (origin $branch)" git push origin "$branch"
 fi
