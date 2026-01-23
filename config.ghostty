@@ -1,0 +1,8 @@
+theme = "Catppuccin Mocha"
+font-family = "DejaVuSansM Nerd Font Mono"
+font-size = 13.5
+adjust-cell-height = "15%"
+font-thicken = true
+font-thicken-strength = 80
+window-height=22
+window-width=100
