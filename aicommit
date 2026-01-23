@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-OPENAI_API_KEY=${OPENAI_API_KEY:-sk-}
-: "${OPENAI_API_KEY:?Missing OPENAI_API_KEY}"
-
+OPENAI_API_KEY=${OPENAI_API_KEY:-sk-fly-}
 BASE_URL="${OPENAI_BASE_URL:-https://api.llmgate.dev}"
 MODEL="${OPENAI_MODEL:-gpt-5.1-codex-mini}"
 TEMP="${OPENAI_TEMPERATURE:-0.2}"
@@ -177,32 +175,66 @@ system=$'Write a Git commit message strictly following Conventional Commits v1.0
 
 call_ai() {
   local usr="$1"
+  local payload resp out
 
-  jq -n --arg m "$MODEL" --arg sys "$system" --arg usr "$usr" --argjson t "$TEMP" '{
-    model: $m,
-    temperature: $t,
-    input: [
-      { role:"system", content: $sys },
-      { role:"user",   content: $usr }
-    ],
-    text: { format: { type: "text" } }
-  }' |
-  curl -sS "$BASE_URL/v1/responses" \
-    -H "Authorization: Bearer '"$OPENAI_API_KEY"'" \
-    -H "Content-Type: application/json" \
-    -d @- |
-  jq -r '
-    (
-      [ .output[]?
-        | select(.type=="message")
-        | .content[]?
-        | select(.type=="output_text")
-        | .text
-      ] | join("")
-    ) // empty
-  ' |
-  sed 's/\r$//'
+  payload="$(
+    jq -n \
+      --arg m "$MODEL" \
+      --arg sys "$system" \
+      --arg usr "$usr" \
+      --argjson t "$TEMP" \
+      '{
+        model: $m,
+        temperature: $t,
+        messages: [
+          { role:"system", content: $sys },
+          { role:"user",   content: $usr }
+        ]
+      }'
+  )"
+
+  # Prefer Chat Completions (most gateways support it)
+  resp="$(
+    curl --fail-with-body -sS \
+      "$BASE_URL/v1/chat/completions" \
+      -H "Authorization: Bearer $OPENAI_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d "$payload"
+  )" || {
+    echo "AI HTTP error:" >&2
+    echo "$resp" >&2
+    return 1
+  }
+
+  # Extract output or show API error
+  out="$(
+    printf "%s" "$resp" | jq -r '
+      if .error? then
+        "ERROR: \(.error.message // .error)" | halt_error(1)
+      elif .choices? then
+        (.choices[0].message.content // "")
+      elif .output? then
+        (
+          [ .output[]?
+            | select(.type=="message")
+            | .content[]?
+            | select(.type=="output_text")
+            | .text
+          ] | join("")
+        )
+      else
+        ""
+      end
+    '
+  )" || {
+    echo "AI parse/API error response:" >&2
+    echo "$resp" >&2
+    return 1
+  }
+
+  printf "%s" "$out" | sed 's/\r$//'
 }
+
 
 # ---------------- MAIN ----------------
 # 1) add
