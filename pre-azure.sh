@@ -38,16 +38,16 @@ az group create --name "$RG" --location "$LOCATION"
 az network nsg create -g "$RG" -n "$NSG"
 
 # Chỉ mở SSH (an toàn hơn)
-az network nsg rule create \
-  -g "$RG" --nsg-name "$NSG" -n allow-ssh \
-  --priority 200 \
-  --access Allow \
-  --direction Inbound \
-  --protocol Tcp \
-  --source-address-prefixes '*' \
-  --source-port-ranges '*' \
-  --destination-address-prefixes '*' \
-  --destination-port-ranges 22
+# az network nsg rule create \
+#   -g "$RG" --nsg-name "$NSG" -n allow-ssh \
+#   --priority 200 \
+#   --access Allow \
+#   --direction Inbound \
+#   --protocol Tcp \
+#   --source-address-prefixes '*' \
+#   --source-port-ranges '*' \
+#   --destination-address-prefixes '*' \
+#   --destination-port-ranges 22
 
 # (Tuỳ chọn) mở HTTP/HTTPS
 # az network nsg rule create \
@@ -63,11 +63,11 @@ az network nsg rule create \
 #   --destination-address-prefixes '*' --destination-port-ranges 443
 
 # Nếu bạn cố tình muốn mở tất cả inbound (không khuyến nghị) thì dùng cái này thay allow-ssh:
-# az network nsg rule create \
-#   -g "$RG" --nsg-name "$NSG" -n allow-all \
-#   --priority 200 --access Allow --direction Inbound --protocol '*' \
-#   --source-address-prefixes '*' --source-port-ranges '*' \
-#   --destination-address-prefixes '*' --destination-port-ranges '*'
+az network nsg rule create \
+  -g "$RG" --nsg-name "$NSG" -n allow-all \
+  --priority 200 --access Allow --direction Inbound --protocol '*' \
+  --source-address-prefixes '*' --source-port-ranges '*' \
+  --destination-address-prefixes '*' --destination-port-ranges '*'
 
 # ====== VNet/Subnet ======
 az network vnet create \
