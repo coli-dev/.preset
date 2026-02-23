@@ -3,6 +3,8 @@ if status is-interactive
 end
 
 set -g fish_greeting
+fish_add_path -g /opt/zerobrew/bin
+fish_add_path -g $HOME/.local/bin
 
 export ANTHROPIC_AUTH_TOKEN="sk-fly-tvuJNQAmdO9xzq3XWfSRNCiKtczmibbfCzzcQ4z46tqBRzIU"
 export ANTHROPIC_BASE_URL="https://api.llmgate.dev"
