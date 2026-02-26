@@ -5,12 +5,19 @@ set -euo pipefail
 BOT_TOKEN="8207355214:AAHrlfravmcwiUQoXZjSyDVxlD60BylNwd0"
 CHAT_ID="1355636590"
 ZIP_PASSWORD="khoanma97"
+
 ROOT_DIR="/www/wwwroot"
 BACKUP_DIR="/www/backup/__"
 
 SLEEP_BETWEEN_UPLOADS=5
 SPLIT_IF_OVER_BYTES=$((512 * 1024 * 1024)) # 512MB
 SPLIT_SIZE="512m"
+
+# Ignore top-level directories in ROOT_DIR
+IGNORE_NAMES=("log" "logs" "Log" "Logs")
+
+# Ignore patterns inside each project (relative to ROOT_DIR)
+IGNORE_PATTERNS=("*/log/*" "*/logs/*" "*/Log/*" "*/Logs/*")
 ### ================== END CONFIG ==================
 
 ts_log()   { date +"%F %T"; }
@@ -21,7 +28,7 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "missing command: $1"
 }
 
-for c in curl zip stat find sort rm hostname basename; do require_cmd "$c"; done
+for c in curl zip stat find sort rm hostname basename grep tee sleep; do require_cmd "$c"; done
 [ -n "${BOT_TOKEN}" ] || die "BOT_TOKEN empty"
 [ -n "${CHAT_ID}" ] || die "CHAT_ID empty"
 
@@ -68,9 +75,18 @@ cleanup_files() {
   done
 }
 
-# ================== FIND ALL DIRS IN /root ==================
+# ================== BUILD FIND IGNORE ==================
+FIND_IGNORE_ARGS=()
+for name in "${IGNORE_NAMES[@]}"; do
+  FIND_IGNORE_ARGS+=( ! -name "$name" )
+done
+
+# ================== FIND TARGET DIRS ==================
 mapfile -t TARGET_DIRS < <(
-  find "$ROOT_DIR" -maxdepth 1 -mindepth 1 -type d ! -name '.*' -exec basename {} \; | sort
+  find "$ROOT_DIR" -maxdepth 1 -mindepth 1 -type d \
+    ! -name '.*' \
+    "${FIND_IGNORE_ARGS[@]}" \
+    -exec basename {} \; | sort
 )
 
 echo "[$(ts_log)] Matched (${#TARGET_DIRS[@]}): ${TARGET_DIRS[*]:-none}" | tee -a "$LOG_FILE"
@@ -94,12 +110,17 @@ for base in "${TARGET_DIRS[@]}"; do
 
   echo "[$(ts_log)] Zipping: ${ROOT_DIR}/${base}" | tee -a "$LOG_FILE"
 
+  ZIP_EXCLUDES=()
+  for pattern in "${IGNORE_PATTERNS[@]}"; do
+    ZIP_EXCLUDES+=( -x "$pattern" )
+  done
+
   (
     cd "$ROOT_DIR"
     if [ -n "$ZIP_PASSWORD" ]; then
-      zip -r -q -P "$ZIP_PASSWORD" "$zip_file" "$base"
+      zip -r -q -P "$ZIP_PASSWORD" "$zip_file" "$base" "${ZIP_EXCLUDES[@]}"
     else
-      zip -r -q "$zip_file" "$base"
+      zip -r -q "$zip_file" "$base" "${ZIP_EXCLUDES[@]}"
     fi
   ) || { FAIL_DIRS=$((FAIL_DIRS + 1)); continue; }
 
@@ -109,7 +130,8 @@ for base in "${TARGET_DIRS[@]}"; do
     rm -f "$zip_file"
     (
       cd "$ROOT_DIR"
-      zip -r -q -s "$SPLIT_SIZE" ${ZIP_PASSWORD:+-P "$ZIP_PASSWORD"} "$zip_file" "$base"
+      zip -r -q -s "$SPLIT_SIZE" ${ZIP_PASSWORD:+-P "$ZIP_PASSWORD"} \
+        "$zip_file" "$base" "${ZIP_EXCLUDES[@]}"
     ) || { FAIL_DIRS=$((FAIL_DIRS + 1)); continue; }
 
     shopt -s nullglob
