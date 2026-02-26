@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ### ================== CONFIG ==================
-BOT_TOKEN="8207355214:AAHrlfravmcwiUQoXZjSyDVxlD60BylNwd0"
-CHAT_ID="1355636590"
-ZIP_PASSWORD="khoanma97"
+BOT_TOKEN=""
+CHAT_ID=""
+ZIP_PASSWORD=""
 
 ROOT_DIR="/www/wwwroot"
 BACKUP_DIR="/www/backup/__"
