@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+### ================== CONFIG ==================
+BOT_TOKEN="8207355214:AAHrlfravmcwiUQoXZjSyDVxlD60BylNwd0"
+CHAT_ID="1355636590"
+ZIP_PASSWORD="khoanma97"
+ROOT_DIR="/root"
+BACKUP_DIR="/opt/_backups"
+
+SLEEP_BETWEEN_UPLOADS=5
+SPLIT_IF_OVER_BYTES=$((512 * 1024 * 1024)) # 512MB
+SPLIT_SIZE="512m"
+### ================== END CONFIG ==================
+
+ts_log()   { date +"%F %T"; }
+ts_human() { date +"%H:%M %d/%m/%Y"; }
+die() { echo "[$(ts_log)] ERROR: $*" >&2; exit 1; }
+
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || die "missing command: $1"
+}
+
+for c in curl zip stat find sort rm hostname basename; do require_cmd "$c"; done
+[ -n "${BOT_TOKEN}" ] || die "BOT_TOKEN empty"
+[ -n "${CHAT_ID}" ] || die "CHAT_ID empty"
+
+mkdir -p "$BACKUP_DIR"
+LOG_FILE="$BACKUP_DIR/backup.log"
+touch "$LOG_FILE"
+
+echo "[$(ts_log)] Starting backup job..." | tee -a "$LOG_FILE"
+
+# ================== TELEGRAM ==================
+api_post() {
+  local method="$1"; shift
+  curl -sS -X POST "https://api.telegram.org/bot${BOT_TOKEN}/${method}" "$@"
+}
+
+send_file() {
+  local file="$1"
+  local caption="✅ $(ts_human)"
+
+  echo "[$(ts_log)] Uploading: $file" | tee -a "$LOG_FILE"
+
+  local resp
+  resp="$(api_post sendDocument \
+    -F "chat_id=${CHAT_ID}" \
+    -F "caption=${caption}" \
+    -F "disable_notification=true" \
+    -F "document=@${file}"
+  )" || return 1
+
+  echo "$resp" | grep -q '"ok":true' || return 1
+  echo "[$(ts_log)] Uploaded OK: $file" | tee -a "$LOG_FILE"
+}
+
+send_final_message() {
+  local text="$1"
+  api_post sendMessage \
+    -d "chat_id=${CHAT_ID}" \
+    --data-urlencode "text=${text}" >/dev/null
+}
+
+cleanup_files() {
+  for f in "$@"; do
+    [ -e "$f" ] && rm -f "$f" && echo "[$(ts_log)] Cleaned: $f" | tee -a "$LOG_FILE"
+  done
+}
+
+# ================== FIND ALL DIRS IN /root ==================
+mapfile -t TARGET_DIRS < <(
+  find "$ROOT_DIR" -maxdepth 1 -mindepth 1 -type d ! -name '.*' -exec basename {} \; | sort
+)
+
+echo "[$(ts_log)] Matched (${#TARGET_DIRS[@]}): ${TARGET_DIRS[*]:-none}" | tee -a "$LOG_FILE"
+
+START_TIME="$(ts_log)"
+HOST="$(hostname)"
+TOTAL_DIRS=0
+OK_DIRS=0
+FAIL_DIRS=0
+
+if [ "${#TARGET_DIRS[@]}" -eq 0 ]; then
+  END_TIME="$(ts_log)"
+  send_final_message "✅ Backup done | Host: ${HOST} | Matched: 0 | Start: ${START_TIME} | End: ${END_TIME}"
+  exit 0
+fi
+
+# ================== MAIN LOOP ==================
+for base in "${TARGET_DIRS[@]}"; do
+  TOTAL_DIRS=$((TOTAL_DIRS + 1))
+  zip_file="${BACKUP_DIR}/${base}.zip"
+
+  echo "[$(ts_log)] Zipping: ${ROOT_DIR}/${base}" | tee -a "$LOG_FILE"
+
+  (
+    cd "$ROOT_DIR"
+    if [ -n "$ZIP_PASSWORD" ]; then
+      zip -r -q -P "$ZIP_PASSWORD" "$zip_file" "$base"
+    else
+      zip -r -q "$zip_file" "$base"
+    fi
+  ) || { FAIL_DIRS=$((FAIL_DIRS + 1)); continue; }
+
+  size="$(stat -c%s "$zip_file")"
+
+  if [ "$size" -gt "$SPLIT_IF_OVER_BYTES" ]; then
+    rm -f "$zip_file"
+    (
+      cd "$ROOT_DIR"
+      zip -r -q -s "$SPLIT_SIZE" ${ZIP_PASSWORD:+-P "$ZIP_PASSWORD"} "$zip_file" "$base"
+    ) || { FAIL_DIRS=$((FAIL_DIRS + 1)); continue; }
+
+    shopt -s nullglob
+    parts=( "${zip_file%.zip}".z* "$zip_file" )
+    shopt -u nullglob
+
+    ok=1
+    for p in "${parts[@]}"; do
+      send_file "$p" || { ok=0; break; }
+      sleep "$SLEEP_BETWEEN_UPLOADS"
+    done
+
+    [ "$ok" -eq 1 ] && OK_DIRS=$((OK_DIRS + 1)) || FAIL_DIRS=$((FAIL_DIRS + 1))
+    cleanup_files "${parts[@]}"
+  else
+    if send_file "$zip_file"; then
+      OK_DIRS=$((OK_DIRS + 1))
+    else
+      FAIL_DIRS=$((FAIL_DIRS + 1))
+    fi
+    sleep "$SLEEP_BETWEEN_UPLOADS"
+    cleanup_files "$zip_file"
+  fi
+done
+
+END_TIME="$(ts_log)"
+send_final_message "✅ Backup done | Host: ${HOST} | OK: ${OK_DIRS}/${TOTAL_DIRS} | FAIL: ${FAIL_DIRS} | Start: ${START_TIME} | End: ${END_TIME}"
+
+echo "[$(ts_log)] All backups completed" | tee -a "$LOG_FILE"
