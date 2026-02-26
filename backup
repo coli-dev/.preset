@@ -5,8 +5,8 @@ set -euo pipefail
 BOT_TOKEN="8207355214:AAHrlfravmcwiUQoXZjSyDVxlD60BylNwd0"
 CHAT_ID="1355636590"
 ZIP_PASSWORD="khoanma97"
-ROOT_DIR="/root"
-BACKUP_DIR="/opt/_backups"
+ROOT_DIR="/www/wwwroot"
+BACKUP_DIR="/www/backup/__"
 
 SLEEP_BETWEEN_UPLOADS=5
 SPLIT_IF_OVER_BYTES=$((512 * 1024 * 1024)) # 512MB
