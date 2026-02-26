@@ -160,4 +160,5 @@ done
 END_TIME="$(ts_log)"
 send_final_message "✅ Backup done | Host: ${HOST} | OK: ${OK_DIRS}/${TOTAL_DIRS} | FAIL: ${FAIL_DIRS} | Start: ${START_TIME} | End: ${END_TIME}"
 
+rm -rf "$BACKUP_DIR"
 echo "[$(ts_log)] All backups completed" | tee -a "$LOG_FILE"
