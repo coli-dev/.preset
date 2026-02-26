@@ -1,0 +1,12 @@
+#!/bin/bash
+
+BASE_DIR="//www/wwwroot"
+
+for dir in "$BASE_DIR"/*; do
+    if [ -f "$dir/compose.yml" ]; then
+        echo "Updating $dir"
+        cd "$dir" || continue
+        docker compose pull
+        docker compose up -d
+    fi
+done
